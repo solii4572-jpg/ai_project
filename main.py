@@ -6,4 +6,4 @@ if st.button('인삿말 생성'):
   st.write(a+'님, 안녕하세요')
   st.info('반갑습니다')
   st.warning(b+'음식을 좋아하시나봐요!')
-  sterror('잘 부탁합니다')
+  st.error('잘 부탁합니다')

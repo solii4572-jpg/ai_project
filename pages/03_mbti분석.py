@@ -1,95 +1,74 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# 1. 페이지 설정
-st.set_page_config(
-    page_title="Global MBTI Dashboard",
-    page_icon="📊",
-    layout="centered"
-)
-
-# 2. 데이터 로드 함수
-@st.cache_data
-def load_data():
-    # 앱과 동일한 경로에 있는 CSV 파일을 읽어옵니다.
-    df = pd.read_csv("countriesMBTI_16types.csv")
-    return df
-
-try:
-    df = load_data()
-except Exception as e:
-    st.error(f"데이터 파일을 불러오지 못했습니다. 'countriesMBTI_16types.csv' 파일이 같은 폴더에 있는지 확인해주세요. 에러: {e}")
-    st.stop()
-
-# 3. 타이틀 및 설명
+# 타이틀 출력
 st.title("🌍 국가별 MBTI 분포 대시보드")
 st.markdown("원하는 국가를 선택하면 16가지 MBTI 성격 유형 비율을 분석하여 시각화합니다.")
 
-# 4. 국가 선택 사이드바/셀렉트박스
+# 데이터 불러오기
+try:
+    df = pd.read_csv("countriesMBTI_16types.csv")
+except Exception as e:
+    st.error("데이터 파일('countriesMBTI_16types.csv')을 찾을 수 없습니다. 파일이 같은 폴더에 있는지 확인해 주세요.")
+    st.stop()
+
+# 국가 선택 박스
 countries = sorted(df['Country'].unique())
-# 기본값으로 South Korea가 있으면 선택, 없으면 첫 번째 국가 지정
-default_index = countries.index("South Korea") if "South Korea" in countries else 0
-selected_country = st.selectbox("📊 분석할 국가를 선택하세요:", countries, index=default_index)
+default_idx = countries.index("South Korea") if "South Korea" in countries else 0
+selected_country = st.selectbox("📊 분석할 국가를 선택하세요:", countries, index=default_idx)
 
-# 5. 데이터 추출 및 가공
+# 선택된 국가의 데이터 추출 및 정렬 (퍼센트 변환)
 country_data = df[df['Country'] == selected_country].iloc[0]
-# 국가명 제외한 MBTI 데이터만 추출 후 숫자로 변환
-mbti_series = country_data.drop('Country').astype(float)
-# 퍼센트 단위(%)로 변환
-mbti_series = mbti_series * 100
-# 비율이 높은 순서대로 정렬
-mbti_sorted = mbti_series.sort_values(ascending=False)
+mbti_data = country_data.drop('Country').astype(float) * 100
+mbti_sorted = mbti_data.sort_values(ascending=False)
 
-# 6. 상위 데이터 스탯 표시
+# 상위 요약 지표 (Metric)
 col1, col2 = st.columns(2)
 with col1:
-    st.metric(label=f"🥇 {selected_country}의 가장 흔한 MBTI", value=mbti_sorted.index[0], delta=f"{mbti_sorted.iloc[0]:.2f}%")
+    st.metric(label=f"🥇 {selected_country} 최다 MBTI", value=mbti_sorted.index[0], delta=f"{mbti_sorted.iloc[0]:.2f}%")
 with col2:
-    st.metric(label=f"🫥 {selected_country}의 가장 희귀한 MBTI", value=mbti_sorted.index[-1], delta=f"{mbti_sorted.iloc[-1]:.2f}%", delta_color="inverse")
+    st.metric(label=f"🫥 {selected_country} 최소 MBTI", value=mbti_sorted.index[-1], delta=f"{mbti_sorted.iloc[-1]:.2f}%", delta_color="inverse")
 
-# 7. 색상 그라데이션 생성 (1등: 핫핑크, 나머지: 흐려지는 초록색)
-def get_green_gradient(n_colors):
-    # 2등부터 마지막 등수까지 서서히 흐려지는 선형 그라데이션 색상 생성
-    colors = []
-    for i in range(n_colors):
-        mix = i / max(1, (n_colors - 1))
-        # 진한 초록(rgb(46, 125, 50))에서 연한 초록(rgb(232, 245, 233))으로 가중치 믹스
-        r = int(46 + (232 - 46) * mix)
-        g = int(125 + (245 - 125) * mix)
-        b = int(50 + (233 - 50) * mix)
-        colors.append(f"rgb({r}, {g}, {b})")
-    return colors
+# 🎨 색상 그라데이션 생성 (1등: 핫핑크, 나머지: 흐려지는 초록색)
+# matplotlib과 seaborn을 활용하여 부드럽고 안전한 컬러 구성
+colors = []
+colors.append("#FF69B4")  # 1등: 핫핑크
 
-# 전체 16개 유형에 적용할 색상 리스트 작성
-colors_list = []
-colors_list.append("#FF69B4")  # 1등 색상: 핫핑크
-colors_list.extend(get_green_gradient(15))  # 나머지 15개 유형: 그라데이션 초록색
+# 2등부터 16등까지 점점 흐려지는 초록색 배열 (YlGn 맵에서 진한 영역 위주 추출)
+green_palette = sns.color_palette("Greens_r", n_colors=25)  
+for i in range(15):
+    # 너무 투명해서 안 보이지 않도록 앞쪽(진한 쪽)의 색상들을 순서대로 매핑
+    colors.append(green_palette[i+3])
 
-# 8. Plotly 막대그래프 생성
-fig = go.Figure()
+# 그래프 그리기 (Matplotlib Figure)
+fig, ax = plt.subplots(figsize=(10, 5))
+bars = ax.bar(mbti_sorted.index, mbti_sorted.values, color=colors, edgecolor='none')
 
-fig.add_trace(go.Bar(
-    x=mbti_sorted.index,
-    y=mbti_sorted.values,
-    text=[f"{val:.2f}%" for val in mbti_sorted.values],
-    textposition='auto',
-    marker_color=colors_list,
-    hovertemplate="<b>%{x}</b>: %{y:.2f}%<extra></extra>"
-))
+# 그래프 스타일 설정
+ax.set_title(f"{selected_country} MBTI 유형별 비율 순위 (%)", fontsize=14, pad=15, fontweight='bold')
+ax.set_ylabel("비율 (%)", fontsize=11)
+ax.set_xlabel("MBTI 유형", fontsize=11)
+ax.grid(axis='y', linestyle='--', alpha=0.5)
 
-fig.update_layout(
-    title=f"<b>{selected_country} MBTI 유형별 비율 순위 (%)</b>",
-    xaxis_title="MBTI 성격 유형",
-    yaxis_title="비율 (%)",
-    template="plotly_white",
-    height=550,
-    margin=dict(l=40, r=40, t=60, b=40),
-    yaxis=dict(ticksuffix="%")
-)
+# 막대 위에 숫자(텍스트) 표시
+for bar in bars:
+    height = bar.get_height()
+    ax.text(bar.get_x() + bar.get_width()/2.0, height + 0.1, f"{height:.1f}%", ha='center', va='bottom', fontsize=9)
 
-# 9. 그래프 출력
-st.plotly_chart(fig, use_container_width=True)
+# 테두리 깔끔하게 정리
+sns.despine(ax=ax)
+plt.tight_layout()
 
-# 10. 데이터 테이블 상세 보기
-with st.expander("📊
+# Streamlit에 그래프 출력
+st.pyplot(fig)
+
+# 원본 데이터 상세 보기 테이블
+with st.expander("📊 원본 데이터 테이블 보기"):
+    details_df = pd.DataFrame({
+        'MBTI 유형': mbti_sorted.index,
+        '비율 (%)': mbti_sorted.values
+    }).reset_index(drop=True)
+    details_df.index = details_df.index + 1
+    st.dataframe(details_df, use_container_width=True)

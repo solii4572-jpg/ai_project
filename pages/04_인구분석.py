@@ -1,22 +1,33 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 
 # ------------------ 스트림릿 페이지 설정 ------------------
 st.set_page_config(page_title="서울시 인구 분석", layout="wide")
 
-# 한글 폰트 설정 (Streamlit Cloud 리눅스 환경 대응)
-plt.rc('font', family='NanumGothic' if 'NanumGothic' in [f.name for f in plt.font_manager.fontManager.ttflist] else 'DejaVu Sans')
+# ------------------ [오류 해결] 한글 폰트 설정 ------------------
+# 명시적으로 font_manager를 사용해 시스템에 설치된 폰트 목록을 가져옵니다.
+font_names = [f.name for f in fm.fontManager.ttflist]
+
+# packages.txt를 통해 설치된 'NanumGothic'이 있으면 우선 적용합니다.
+if 'NanumGothic' in font_names:
+    plt.rc('font', family='NanumGothic')
+elif 'Malgun Gothic' in font_names:
+    plt.rc('font', family='Malgun Gothic') # 로컬 윈도우 환경 테스트용
+else:
+    plt.rc('font', family='DejaVu Sans')   # 기본 폰트 fallback
+
 plt.rcParams['axes.unicode_minus'] = False
 
-# 녹차색 테마 내장 스타일 적용 (스트림릿 앱 바탕 화면 및 컴포넌트 색상 지정)
+# ------------------ 녹차색 테마 스타일 적용 ------------------
 st.markdown("""
     <style>
     .stApp {
-        background-color: #D2E0FB; /* 연한 녹차/밀크티 느낌의 베이지-그린 톤 */
+        background-color: #D2E0FB; /* 연한 녹차/밀크티 느낌의 베이지-그린 톤 배경 */
     }
     h1, h2, h3 {
-        color: #3A4D39; /* 짙은 녹차색 */
+        color: #3A4D39; /* 짙은 녹차색 타이틀 */
     }
     </style>
 """, unsafe_allow_html=True)
@@ -50,7 +61,7 @@ if uploaded_file is not None:
     # 선택한 구의 데이터 추출
     district_data = df_districts[df_districts['구이름'] == selected_district].iloc[0]
     
-    # 4. 연령대 매핑 (실제 CSV 컬럼 순서 및 이름 반영)
+    # 4. 연령대 매핑 (CSV 컬럼 매칭)
     age_mapping = {
         '0~9세': '0~9세',
         '2026년04월_거주자_10~19세': '10~19세',
@@ -65,7 +76,7 @@ if uploaded_file is not None:
         '100세 이상': '100세 이상'
     }
     
-    # 그래프에 사용할 가로축(나이)과 세로축(인구수) 데이터 구성
+    # 가로축(나이)과 세로축(인구수) 데이터 구성
     age_labels = list(age_mapping.values())
     population_values = [district_data[col] for col in age_mapping.keys()]
     
@@ -79,7 +90,7 @@ if uploaded_file is not None:
     fig.patch.set_facecolor('#ECEEAF')  # 외부 배경색 (부드러운 녹차잎 색)
     ax.set_facecolor('#F3F4ED')        # 그래프 플롯 내부 배경색 (말차 라떼 색)
     
-    # 꺾은선 그리기 (녹차색과 어울리는 차분한 올리브 브라운/카키 진한 색 조합)
+    # 꺾은선 그리기 (녹차색에 어울리는 짙은 올리브 카키색 가로선)
     ax.plot(age_labels, population_values, 
             color='#4F6F52',           # 꺾은선: 깊은 숲/녹차색
             linestyle='-', 
@@ -116,7 +127,7 @@ if uploaded_file is not None:
 
     st.pyplot(fig)
     
-    # 데이터 테이블 추가 노출
+    # 6. 하단 데이터 테이블 노출
     st.subheader("📋 상세 데이터 표")
     df_table = pd.DataFrame([population_values], columns=age_labels, index=[selected_district])
     st.dataframe(df_table, use_container_width=True)

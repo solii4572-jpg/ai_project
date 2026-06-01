@@ -2,24 +2,22 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# 1. 페이지 설정
+# 1. 페이지 초기 설정
 st.set_page_config(page_title="서울시 인구 분석", layout="wide")
 
-# 2. 파이썬 3.14 호환용 가장 안전한 폰트 기본 설정 (오류 발생 소지 원천 차단)
+# 2. 폰트 에러 안전 방어 설정
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['axes.unicode_minus'] = False
 
-# 3. 녹차색 테마 스타일 적용 (가장 단순한 단일 라인 문자열로 SyntaxError 방지)
-st.markdown("<style>.stApp {background-color: #D2E0FB;} h1, h2, h3 {color: #3A4D39;}</style>", unsafe_allow_html=True)
-
+# 3. 타이틀 표시
 st.title("🍵 서울시 행정구별 연령대 인구수 분석")
-st.markdown("population.csv 파일을 업로드하면 꺾은선 그래프를 확인할 수 있습니다.")
+st.write("population.csv 파일을 업로드하면 꺾은선 그래프를 확인할 수 있습니다.")
 
 # 4. 파일 업로드 기능
 uploaded_file = st.file_uploader("CSV 파일을 업로드 하세요", type=["csv"])
 
 if uploaded_file is not None:
-    # 5. 다중 인코딩 지원 파일 읽기
+    # 5. 여러 인코딩 방식으로 파일 읽기 시도
     df = None
     for enc in ['utf-8', 'cp949', 'euc-kr', 'utf-8-sig']:
         try:
@@ -34,25 +32,25 @@ if uploaded_file is not None:
         st.stop()
         
     try:
-        # 6. 데이터 정제 및 숫자 변환 (쉼표 제거)
+        # 6. 데이터 값 정제 (콤마 제거 후 정수형 변환)
         for col in df.columns[1:]:
             df[col] = df[col].astype(str).str.replace(',', '', regex=False)
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
             
-        # '서울특별시' 전체 행 제거 (순수 구 데이터만 남김)
+        # 서울특별시 전체 행을 제외한 자치구 데이터만 필터링
         df_districts = df[df['행정구역'].str.contains('전체') == False].copy()
         
-        # 행정구역 이름에서 구 이름만 깔끔하게 분리
+        # 행정구역 컬럼에서 구 이름만 깔끔하게 분리 추출
         df_districts['구이름'] = df_districts['행정구역'].apply(lambda x: str(x).split()[1] if len(str(x).split()) > 1 else str(x))
         
-        # 7. 사이드바 필터 설정
+        # 7. 사이드바 자치구 선택 기능
         st.sidebar.header("🌿 필터 설정")
         selected_district = st.sidebar.selectbox("행정구를 선택하세요", df_districts['구이름'].unique())
         
-        # 선택된 구의 데이터 매핑
+        # 선택된 구 데이터 1행 추출
         district_data = df_districts[df_districts['구이름'] == selected_district].iloc[0]
         
-        # 8. CSV 원본 컬럼명과 그래프에 표시할 나이 이름 1:1 매치
+        # 8. CSV 원본 컬럼명과 가로축 매핑
         age_map = {
             '0~9세': '0-9세',
             '2026년04월_거주자_10~19세': '10-19세',
@@ -74,14 +72,32 @@ if uploaded_file is not None:
                 x_data.append(target_label)
                 y_data.append(int(district_data[csv_col]))
                 
-        # 9. 꺾은선 그래프 그리기 (녹차색 설정)
+        # 9. 녹차색 대시보드 꺾은선 그래프 구현
         st.subheader(f"📈 {selected_district} 연령별 인구수 추이")
         
         fig, ax = plt.subplots(figsize=(12, 6))
-        fig.patch.set_facecolor('#ECEEAF')  # 바탕색: 연한 녹차색
-        ax.set_facecolor('#F3F4ED')        # 표 안쪽: 말차 라떼색
+        fig.patch.set_facecolor('#ECEEAF')  # 외부 배경색 (연녹차색)
+        ax.set_facecolor('#F3F4ED')        # 플롯 내부 배경색 (말차라떼색)
         
-        # 꺾은선 스타일
+        # 꺾은선 그리기 스타일링 (지정 테마 반영)
         ax.plot(x_data, y_data, color='#4F6F52', linestyle='-', linewidth=3, marker='o', markersize=8, markerfacecolor='#E8FFCE', markeredgecolor='#4F6F52')
         
-        ax.grid(True
+        ax.grid(True, linestyle='--', alpha=0.5, color='#B5CB99')
+        ax.set_title(f"{selected_district} Population Distribution", fontsize=14, fontweight='bold', color='#3A4D39')
+        
+        # 세로축 숫자 천단위 컴마 포맷 적용
+        ax.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
+        
+        # 그래프 포인트 상단에 인구수 텍스트 표기
+        for i, val in enumerate(y_data):
+            ax.text(i, val, "{:,}".format(val), color='#2C3D2E', fontsize=9, fontweight='bold', ha='center', va='bottom')
+            
+        st.pyplot(fig)
+        
+        # 10. 하단에 가로형 데이터 테이블 출력
+        st.subheader("📋 상세 데이터 표")
+        st.dataframe(pd.DataFrame([y_data], columns=x_data, index=[selected_district]), use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"데이터를 처리하는 도중 문제가 발생했습니다: {e}")
+        

@@ -1,17 +1,17 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
+# 스트림릿 리눅스 서버 환경 폰트 설정 및 깨짐 방지
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['axes.unicode_minus'] = False
 
-st.title("🌡️ 서울 역대 기온 데이터 조회")
-st.markdown("1907년부터 2018년까지의 서울 기온 데이터를 조회합니다.")
+st.title("🌡️ 서울 역대 특정 날짜 기온 추이")
+st.markdown("특정 월과 일을 선택하면, 1907~2018년 동안 해당 날짜의 기온 변화를 보여줍니다.")
 
 @st.cache_data
 def load_data():
-    # 여러 인코딩을 순차적으로 시도하여 안전하게 로드
+    # 인코딩 자동 탐색 알고리즘
     for enc in ['cp949', 'utf-8', 'euc-kr', 'utf-8-sig']:
         try:
             df = pd.read_csv("seoul.csv", encoding=enc)
@@ -23,7 +23,7 @@ def load_data():
     # 열 이름 정제 (앞뒤 공백 제거)
     df.columns = df.columns.str.strip()
     
-    # 깨진 열 이름이 있을 경우를 대비해 수동 매핑
+    # 열 이름 보정
     for col in df.columns:
         if "날짜" in str(col):
             df = df.rename(columns={col: "날짜"})
@@ -32,59 +32,64 @@ def load_data():
         elif "최고" in str(col):
             df = df.rename(columns={col: "최고기온"})
             
-    # 데이터 정제 (주석이나 정규식 에러 방지를 위해 간단한 함수 사용)
+    # 날짜 정제 및 datetime 변환
     df['날짜'] = df['날짜'].astype(str).str.strip()
     df['날짜'] = df['날짜'].apply(lambda x: x.replace('\t', ''))
     df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
     
+    # 기온 데이터 변환 및 결측치 제거
     df['최저기온'] = pd.to_numeric(df['최저기온'], errors='coerce')
     df['최고기온'] = pd.to_numeric(df['최고기온'], errors='coerce')
     df = df.dropna(subset=['날짜', '최저기온', '최고기온'])
+    
+    # 분석을 위한 연도, 월, 일 열 생성
+    df['연도'] = df['날짜'].dt.year
+    df['월'] = df['날짜'].dt.month
+    df['일'] = df['날짜'].dt.day
     
     return df
 
 try:
     df = load_data()
 
-    min_date = df['날짜'].min().to_pydatetime()
-    max_date = df['날짜'].max().to_pydatetime()
+    # 사이드바에서 월과 일 따로 선택받기
+    st.sidebar.header("📅 분석할 날짜 선택")
+    
+    selected_month = st.sidebar.selectbox("월을 선택하세요", list(range(1, 13)), index=9) # 기본값 10월
+    selected_day = st.sidebar.selectbox("일을 선택하세요", list(range(1, 32)), index=0)   # 기본값 1일
 
-    st.sidebar.header("🔍 조회 조건 설정")
-    date_range = st.sidebar.date_input(
-        "조회할 기간을 선택하세요",
-        value=(min_date, min_date + pd.Timedelta(days=30)),
-        min_value=min_date,
-        max_value=max_date
-    )
+    # 선택한 월/일에 맞는 데이터 필터링 (예: 역대 모든 해의 10월 1일 데이터 모으기)
+    filtered_df = df[(df['월'] == selected_month) & (df['일'] == selected_day)].sort_values(by='연도')
 
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-        filtered_df = df[(df['날짜'] >= pd.to_datetime(start_date)) & (df['날짜'] <= pd.to_datetime(end_date))]
+    if not filtered_df.empty:
+        st.subheader(f"📊 역대 {selected_month}월 {selected_day}일 기온 변화 추이 (1907 ~ 2018)")
         
-        if not filtered_df.empty:
-            st.subheader(f"📅 기온 시각화 그래프")
+        # 꺾은선 그래프 그리기
+        fig, ax = plt.subplots(figsize=(11, 5))
+        
+        # 요구사항 반영: 최고기온(핫핑크), 최저기온(연한 하늘색), 범례 표시
+        ax.plot(filtered_df['연도'], filtered_df['최고기온'], color='deeppink', marker='o', label='Max Temp (C)', linewidth=1.5, markersize=4)
+        ax.plot(filtered_df['연도'], filtered_df['최저기온'], color='lightskyblue', marker='o', label='Min Temp (C)', linewidth=1.5, markersize=4)
+        
+        # 축 및 그리드 레이아웃 설정
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Temperature (C)")
+        ax.grid(True, linestyle='--', alpha=0.5)
+        
+        # 범례 표시
+        ax.legend(loc='upper right')
+        
+        # 스트림릿 화면에 그래프 띄우기
+        st.pyplot(fig)
+        
+        # 상세 데이터 테이블 제공
+        with st.expander("📊 상세 데이터 확인하기"):
+            st.dataframe(filtered_df[['연도', '최저기온', '최고기온']].reset_index(drop=True))
             
-            fig, ax = plt.subplots(figsize=(10, 5))
-            
-            # 요구사항: 최고기온(핫핑크), 최저기온(연한 하늘색), 범례 표시
-            ax.plot(filtered_df['날짜'], filtered_df['최고기온'], color='deeppink', marker='o', label='Max Temp (C)', linewidth=2)
-            ax.plot(filtered_df['날짜'], filtered_df['최저기온'], color='lightskyblue', marker='o', label='Min Temp (C)', linewidth=2)
-            
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            fig.autofmt_xdate()
-            
-            ax.set_ylabel("Temperature (C)")
-            ax.grid(True, linestyle='--', alpha=0.5)
-            ax.legend(loc='upper right')
-            
-            st.pyplot(fig)
-            
-            with st.expander("📊 데이터 테이블 보기"):
-                st.dataframe(filtered_df[['날짜', '최저기온', '최고기온']].reset_index(drop=True))
-        else:
-            st.warning("선택한 기간에 해당하는 데이터가 없습니다.")
+    else:
+        st.warning(f"선택하신 {selected_month}월 {selected_day}일에 해당하는 데이터가 없습니다. (윤년 데이터 등 확인 필요)")
 
 except FileNotFoundError:
-    st.error("💡 `seoul.csv` 파일을 찾을 수 없습니다. 파일이 스크립트와 동일한 저장소 위치에 있는지 확인해 주세요.")
+    st.error("💡 `seoul.csv` 파일을 찾을 수 없습니다. 파일이 동일한 깃허브 저장소 위치에 업로드 되었는지 확인하세요.")
 except Exception as e:
-    st.error(f"오류 발생: {e}")
+    st.error(f"오류가 발생했습니다: {e}")

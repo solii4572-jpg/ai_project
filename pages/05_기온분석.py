@@ -3,8 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-# [방어 코드] 스트림릿 리눅스 서버에서 한글 깨짐 및 에러를 방지하기 위해 
-# 그래프의 기본 폰트를 시스템 영문 폰트(Sans-Serif)로 강제 지정합니다.
+# [방어 코드] 스트림릿 리눅스 서버에서 한글 깨짐 및 에러 방지
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
 
@@ -16,22 +15,48 @@ st.markdown("1907년부터 2018년까지의 서울 기온 데이터를 조회하
 # 2. 데이터 로드 및 전처리 (캐싱 처리)
 @st.cache_data
 def load_data():
-    # [방어 코드] UTF-8 인코딩을 명시하고, 파일 안의 탭 문자로 인한 파싱 에러를 방지합니다.
-    df = pd.read_csv("seoul.csv", encoding="utf-8")
+    # [무적의 방어 코드] 여러 인코딩 방식을 순서대로 시도하여 성공하는 것으로 읽어옵니다.
+    encodings = ['cp949', 'utf-8', 'euc-kr', 'utf-8-sig']
+    df = None
     
-    # '날짜' 열의 이름과 데이터에 붙은 \t(탭문자) 및 공백 완벽 제거
+    for enc in encodings:
+        try:
+            df = pd.read_csv("seoul.csv", encoding=enc)
+            # 만약 첫 번째 열 이름에 '날짜'라는 글자가 제대로 포함되어 있다면 성공으로 간주
+            if any('날짜' in str(col) for col in df.columns):
+                break
+        except Exception:
+            continue
+            
+    # 만약 모든 인코딩이 실패했을 경우를 위한 마지막 보루
+    if df is None:
+        df = pd.read_csv("seoul.csv", encoding='cp949', errors='ignore')
+
+    # '날짜' 열의 이름과 데이터에 붙은 공백 및 특수기호 완벽 제거
     df.columns = df.columns.str.strip()
-    df['날짜'] = df['날짜'].astype(str).str.replace(r'[\t\s"\']', '', regex=True)
     
-    # datetime 형식으로 안전하게 변환
+    # 실제 '날짜'가 포함된 열 찾기 (글자 깨짐 대비)
+    date_col = [col for col in df.columns if '날짜' in col]
+    if date_col:
+        df = df.rename(columns={date_col[0]: '날짜'})
+    
+    df['날짜'] = df['날짜'].astype(str).str.replace(r'[\t\s"\']', '', regex=True)
     df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
     
-    # 기온 데이터 열 이름 정제 및 숫자 변환
+    # 기온 데이터 열 이름 정제 (깨짐 방지 처리 포함)
+    for col in df.columns:
+        if '최저' in col:
+            df = df.rename(columns={col: '최저기온(℃)'})
+        elif '최고' in col:
+            df = df.rename(columns={col: '최고기온(℃)'})
+        elif '평균' in col:
+            df = df.rename(columns={col: '평균기온(℃)'})
+
+    # 숫자 변환 및 결측치 제거
     df['최저기온(℃)'] = pd.to_numeric(df['최저기온(℃)'], errors='coerce')
     df['최고기온(℃)'] = pd.to_numeric(df['최고기온(℃)'], errors='coerce')
-    
-    # 결측치 행 제거
     df = df.dropna(subset=['날짜', '최저기온(℃)', '최고기온(℃)'])
+    
     return df
 
 try:
@@ -51,44 +76,6 @@ try:
         max_value=max_date
     )
 
-    # 시작일과 종료일이 모두 선택되었을 때만 그래프 출력
     if len(date_range) == 2:
         start_date, end_date = date_range
-        
-        # 선택한 날짜에 맞게 데이터 필터링
-        filtered_df = df[(df['날짜'] >= pd.to_datetime(start_date)) & (df['날짜'] <= pd.to_datetime(end_date))]
-        
-        if not filtered_df.empty:
-            st.subheader(f"📅 {start_date} ~ {end_date} 기온 그래프")
-            
-            # 4. 꺾은선 그래프 그리기 (Matplotlib)
-            fig, ax = plt.subplots(figsize=(10, 5))
-            
-            # [요구사항 반영] 최고기온: 핫핑크(deeppink), 최저기온: 연한 하늘색(lightskyblue)
-            # [방어 코드] 서버 에러를 방지하기 위해 범례 표시는 영문(Max Temp, Min Temp)으로 안전하게 지정합니다.
-            ax.plot(filtered_df['날짜'], filtered_df['최고기온(℃)'], color='deeppink', marker='o', label='Max Temp (C)', linewidth=2)
-            ax.plot(filtered_df['날짜'], filtered_df['최저기온(℃)'], color='lightskyblue', marker='o', label='Min Temp (C)', linewidth=2)
-            
-            # X축 날짜 포맷팅 (년-월-일)
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            fig.autofmt_xdate()
-            
-            ax.set_ylabel("Temperature (C)")
-            ax.grid(True, linestyle='--', alpha=0.5)
-            
-            # [요구사항 반영] 범례 표시
-            ax.legend(loc='upper right')
-            
-            # 스트림릿 화면에 그래프 출력
-            st.pyplot(fig)
-            
-            # 선택한 기간의 데이터 테이블도 함께 보여주기
-            with st.expander("📊 선택한 기간 데이터 자세히 보기 (Data Table)"):
-                st.dataframe(filtered_df[['날짜', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].reset_index(drop=True))
-        else:
-            st.warning("선택한 기간에 해당하는 데이터가 없습니다.")
-            
-except FileNotFoundError:
-    st.error("💡 `seoul.csv` 파일이 깃허브 저장소(Repository) 안의 올바른 위치에 업로드되었는지 확인해 주세요.")
-except Exception as e:
-    st.error(f"예기치 못한 오류가 발생했습니다: {e}")
+        filtered_df = df[(df['날짜'] >= pd.to_datetime(
